@@ -45,3 +45,31 @@ def test_cli_passes_cache_limit_to_loader(tmp_path, monkeypatch, limit):
     monkeypatch.setattr(sys, 'argv', args)
     main()
     assert json.loads(output.read_text())['limit'] == (256 if limit is None else limit)
+
+
+def test_mlx_rejects_image_rows_before_loading(tmp_path, monkeypatch, capsys):
+    import json
+
+    png = tmp_path / "shot.png"
+    png.write_bytes(
+        b"\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR\x00\x00\x00\x01\x00\x00\x00\x01"
+        b"\x08\x02\x00\x00\x00\x90wS\xde\x00\x00\x00\x0cIDATx\x9cc\xf8\xcf\xc0"
+        b"\x00\x00\x03\x01\x01\x00\x18\xdd\x8d\xb0\x00\x00\x00\x00IEND\xaeB`\x82"
+    )
+    source, output = tmp_path / "input.jsonl", tmp_path / "output.jsonl"
+    source.write_text(json.dumps({
+        "id": "test",
+        "state": "Evidence",
+        "question": "Supported?",
+        "options": [{"id": "yes", "description": "Yes"}, {"id": "no", "description": "No"}],
+        "Image": str(png),
+    }) + "\n")
+    monkeypatch.setattr(sys, "argv", [
+        "semif-score", "--backend", "mlx", "--mode", "direct", "--model", "unused",
+        "--revision", "unused", "--input", str(source), "--output", str(output),
+    ])
+    with pytest.raises(SystemExit) as error:
+        main()
+    assert error.value.code == 2
+    assert "Image" in capsys.readouterr().err
+    assert not output.exists()

@@ -42,6 +42,8 @@ def main() -> None:
         parser.error("Input is empty")
     for row in rows:
         validate_row(row)
+    if args.backend == "mlx" and any("Image" in row for row in rows):
+        parser.error("MLX does not support Image inputs")
     direct, serial, shared = direct_score, SerialPrefixScorer, score_shared
     if args.backend == "mlx":
         from . import mlx_backend

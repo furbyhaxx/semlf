@@ -24,8 +24,9 @@ Jev is TypeSafe's closed service for runtime-defined semantic decisions. This pr
 
 This baseline reads typed option probabilities directly from a model. No answer sentence, JSON repair, or decoding loop.
 
-### Latest changes — 2026-09-18
+### Latest changes — 2026-09-22
 
+- Direct, serial, and shared scoring accept an optional `Image` path and run Qwen3.5-4B as a vision-language model.
 - Added MiniCPM5 2B and Qwen3.5 4B to the browser demo.
 - Added **Unsloppify site**, a switch to a conventional interface.
 
@@ -56,8 +57,24 @@ CUDA_VISIBLE_DEVICES=0 semif-score \
 ```
 
 Each result contains typed option scores, timing, the exact model revision, and a prompt hash.
+The scorer refuses an existing output path; pick a new `--output` file on every run.
 
 If every row has the same exact state, switch to `--mode shared` to prefill it once and evaluate the criteria in parallel.
+
+### Multimodal decisions
+
+Qwen3.5-4B is a vision-language checkpoint. Add a local `Image` path; `state`, `question`, and `options` stay the same. The path is never copied into the text payload: the processor reads the file and the model still returns option logits, with no generated tokens.
+
+```bash
+CUDA_VISIBLE_DEVICES=0 semif-score \
+  --mode direct \
+  --model Qwen/Qwen3.5-4B \
+  --revision 851bf6e806efd8d0a36b00ddf55e13ccb7b8cd0a \
+  --input examples/decisions-image.jsonl \
+  --output results-image.jsonl
+```
+
+`serial` and `shared` reuse a prefix only when both `state` and `Image` match. MLX and `--mode reranker` reject `Image` rows. Image scoring needs Pillow; install `torchvision` if the processor asks for it.
 
 ## How it works
 
@@ -72,6 +89,7 @@ flowchart LR
 - **Runtime-defined:** criteria and option descriptions arrive with the request.
 - **Decision-native:** one forward pass reads declared option logits; no answer token is sampled.
 - **Shared-state aware:** one long state can be prefetched once, then branched across many criteria.
+- **Optional image:** a local `Image` path is fused through the native Qwen3.5 processor; text-only rows are unchanged.
 - **Auditable:** the owned fixture, exact runners, row-level outputs, revisions, prompts, and known failures are committed.
 
 ## Speed
@@ -143,8 +161,23 @@ The Jev number is read from TypeSafe's published records; we did not run a live 
 }
 ```
 
+Optional `Image` is a nonempty path to an existing local file:
+
+```json
+{
+  "id": "support-1",
+  "state": "count people in the image",
+  "question": "How many people are in the image?",
+  "options": [
+    {"id": "20", "description": "twenty"},
+    {"id": "1", "description": "one"}
+  ],
+  "Image": "examples/test.png"
+}
+```
+
 Returned probabilities are conditional on the supplied options. Calibrate and validate them on the workload where they will make decisions.
-`state` may also be a nonempty JSON object or array. Direct modes preserve it as structured JSON; reranker mode renders it as document text.
+`state` may also be a nonempty JSON object or array. Direct modes preserve it as structured JSON; reranker mode renders it as document text. `Image` is extra visual evidence, not a substitute for `state`.
 
 ## Documentation
 

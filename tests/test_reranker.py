@@ -40,3 +40,25 @@ def test_no_silent_truncation():
 
 def test_official_yes_no_token_contract_is_checked():
     assert _answer_ids(AnswerTokenizer()) == (4, 7)
+
+
+def test_reranker_rejects_image_inputs(tmp_path):
+    from semif_phase1.reranker import score
+
+    row = {
+        "id": "x",
+        "state": "owned evidence",
+        "question": "Which answer follows?",
+        "options": [
+            {"id": "yes", "description": "Yes."},
+            {"id": "no", "description": "No."},
+        ],
+        "Image": str(tmp_path / "shot.png"),
+    }
+    (tmp_path / "shot.png").write_bytes(
+        b"\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR\x00\x00\x00\x01\x00\x00\x00\x01"
+        b"\x08\x02\x00\x00\x00\x90wS\xde\x00\x00\x00\x0cIDATx\x9cc\xf8\xcf\xc0"
+        b"\x00\x00\x03\x01\x01\x00\x18\xdd\x8d\xb0\x00\x00\x00\x00IEND\xaeB`\x82"
+    )
+    with pytest.raises(ValueError, match="Image"):
+        score(None, None, row, {})

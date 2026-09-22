@@ -5,7 +5,7 @@ from __future__ import annotations
 import inspect
 import time
 
-from .core import LETTERS, digest, direct_messages, softmax
+from .core import LETTERS, direct_messages, prompt_digest, tokenize_rendered, softmax
 
 PROMPT_VERSION = "direct-options-v1"
 
@@ -30,31 +30,59 @@ def _forward(model, inputs):
     return model(**kwargs).logits[:, -1, :]
 
 
-def encode_prompt(tokenizer, row: dict, max_tokens: int) -> tuple[list[int], list[int], str]:
-    """Encode one decision and verify its single-token answer slots."""
+def encode_decision(tokenizer, row: dict, max_tokens: int = 4096) -> tuple[list[int], list[int], str, dict]:
+    """Encode one decision, expanding Image inputs through the native processor."""
     prompt = tokenizer.apply_chat_template(
         direct_messages(row), tokenize=False, add_generation_prompt=True, enable_thinking=False
     )
-    ids = tokenizer.encode(prompt, add_special_tokens=False)
+    ids, vision = tokenize_rendered(tokenizer, prompt, row)
     if not ids or len(ids) > max_tokens:
         raise ValueError(f"Row {row['id']}: {len(ids)} input tokens exceed limit {max_tokens}; no truncation allowed")
     slots = _slot_ids(tokenizer, len(row["options"]))
     for letter, token in zip(LETTERS, slots):
-        if tokenizer.encode(prompt + letter, add_special_tokens=False) != ids + [token]:
+        lettered, _ = tokenize_rendered(tokenizer, prompt + letter, row)
+        if lettered != ids + [token]:
             raise ValueError(f"Answer boundary changes tokenization for slot {letter}")
-    return ids, slots, digest(prompt)
+    return ids, slots, prompt_digest(prompt, row), vision
+
+
+def encode_prompt(tokenizer, row: dict, max_tokens: int = 4096) -> tuple[list[int], list[int], str]:
+    """Encode one decision and verify its single-token answer slots."""
+    ids, slots, prompt_hash, vision = encode_decision(tokenizer, row, max_tokens)
+    if vision:
+        raise ValueError("Image inputs require the torch multimodal scorer")
+    return ids, slots, prompt_hash
+
+
+def _move_vision(vision: dict, device):
+    return {key: value.to(device) if hasattr(value, "to") else value for key, value in vision.items()}
+
+
+def _prefix_vision(vision: dict, prefix_length: int, device):
+    kept = {}
+    for key, value in vision.items():
+        if key == "attention_mask":
+            continue
+        if key == "mm_token_type_ids":
+            kept[key] = value[:, :prefix_length] if getattr(value, "ndim", 1) > 1 else value[:prefix_length]
+        else:
+            kept[key] = value
+    return _move_vision(kept, device)
 
 
 def score(model, tokenizer, row: dict, metadata: dict, max_tokens: int = 4096) -> dict:
     import torch
 
     started = time.perf_counter()
-    ids, slots, prompt_hash = encode_prompt(tokenizer, row, max_tokens)
+    ids, slots, prompt_hash, vision = encode_decision(tokenizer, row, max_tokens)
     device = next(model.parameters()).device
     inputs = {
         "input_ids": torch.tensor([ids], dtype=torch.long, device=device),
         "attention_mask": torch.ones((1, len(ids)), dtype=torch.long, device=device),
+        **_move_vision(vision, device),
     }
+    if "attention_mask" in vision and hasattr(vision["attention_mask"], "to"):
+        inputs["attention_mask"] = vision["attention_mask"].to(device)
     if device.type == "cuda":
         torch.cuda.synchronize(device)
     forward_start = time.perf_counter()

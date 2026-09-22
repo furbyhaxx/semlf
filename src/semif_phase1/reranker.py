@@ -98,9 +98,9 @@ def score_pair_batch(model, tokenizer, specs, max_tokens: int = 4096):
 
 
 def score(model, tokenizer, row: dict, metadata: dict, max_tokens: int = 4096) -> dict:
-    import torch
-
     validate_row(row)
+    if "Image" in row:
+        raise ValueError("Reranker mode does not accept Image inputs")
     started = time.perf_counter()
     scored, timing = score_pair_batch(
         model, tokenizer, [(row, option) for option in row["options"]], max_tokens

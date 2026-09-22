@@ -38,21 +38,78 @@ def validate_row(row: dict) -> None:
         ids.append(option["id"])
     if len(ids) != len(set(ids)):
         raise ValueError("Option IDs must be unique")
+    if "Image" in row:
+        image = row["Image"]
+        if not isinstance(image, str) or not image:
+            raise ValueError("Image must be a nonempty path string")
+        if not Path(image).is_file():
+            raise ValueError(f"Image path does not exist or is not a file: {image}")
+
+
+def user_text(content) -> str:
+    if isinstance(content, str):
+        return content
+    if not isinstance(content, list):
+        raise ValueError("User content must be a string or multimodal list")
+    texts = [part.get("text") for part in content if isinstance(part, dict) and part.get("type") == "text"]
+    if len(texts) != 1 or not isinstance(texts[0], str) or not texts[0]:
+        raise ValueError("Multimodal user content needs exactly one text part")
+    return texts[0]
+
+
+def load_images(row: dict):
+    if "Image" not in row:
+        return None
+    from PIL import Image as PILImage
+
+    image = PILImage.open(row["Image"]).convert("RGB")
+    image.load()
+    return [image]
+
+
+def tokenize_rendered(tokenizer, text: str, row: dict) -> tuple[list[int], dict]:
+    images = load_images(row)
+    processor = getattr(tokenizer, "processor", None)
+    if not images:
+        return tokenizer.encode(text, add_special_tokens=False), {}
+    if processor is None:
+        raise ValueError("Image inputs require a multimodal processor")
+    batch = processor(text=[text], images=images, return_tensors="pt")
+    token_ids = batch["input_ids"][0]
+    ids = token_ids.tolist() if hasattr(token_ids, "tolist") else list(token_ids)
+    vision = {key: value for key, value in batch.items() if key != "input_ids"}
+    return ids, vision
+
+
+def prompt_digest(text: str, row: dict) -> str:
+    if "Image" not in row:
+        return digest(text)
+    hasher = hashlib.sha256(text.encode())
+    hasher.update(b"\0")
+    hasher.update(Path(row["Image"]).read_bytes())
+    return hasher.hexdigest()
 
 
 def direct_messages(row: dict) -> list[dict]:
     validate_row(row)
-    payload = {
-        "evidence": row["state"],
-        "criterion": row["question"],
-        "options": [
-            {"letter": LETTERS[index], "description": option["description"]}
-            for index, option in enumerate(row["options"])
-        ],
-    }
+    payload = json.dumps(
+        {
+            "evidence": row["state"],
+            "criterion": row["question"],
+            "options": [
+                {"letter": LETTERS[index], "description": option["description"]}
+                for index, option in enumerate(row["options"])
+            ],
+        },
+        ensure_ascii=False,
+    )
+    if "Image" in row:
+        user = [{"type": "image", "image": row["Image"]}, {"type": "text", "text": payload}]
+    else:
+        user = payload
     return [
         {"role": "system", "content": DIRECT_SYSTEM},
-        {"role": "user", "content": json.dumps(payload, ensure_ascii=False)},
+        {"role": "user", "content": user},
     ]
 
 
@@ -85,7 +142,14 @@ def load_causal_model(source: str, revision: str):
     config = transformers.AutoConfig.from_pretrained(source, **common)
     tokenizer = transformers.AutoTokenizer.from_pretrained(source, **common)
     cls = transformers.AutoModelForCausalLM
-    if config.model_type in {"qwen3_5", "qwen3_5_text"}:
+    if config.model_type == "qwen3_5" and getattr(config, "vision_config", None) is not None:
+        cls = getattr(transformers, "Qwen3_5ForConditionalGeneration", None)
+        if cls is None:
+            raise RuntimeError("Installed transformers lacks the native Qwen3.5 multimodal model")
+        processor = transformers.AutoProcessor.from_pretrained(source, **common)
+        tokenizer = getattr(processor, "tokenizer", tokenizer)
+        tokenizer.processor = processor
+    elif config.model_type in {"qwen3_5", "qwen3_5_text"}:
         cls = getattr(transformers, "Qwen3_5ForCausalLM", None)
         if cls is None:
             raise RuntimeError("Installed transformers lacks the native Qwen3.5 model")

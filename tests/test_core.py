@@ -46,3 +46,34 @@ def test_structured_json_state_is_supported():
 def test_nonfinite_structured_state_is_rejected():
     with pytest.raises(ValueError, match="finite JSON-compatible"):
         validate_row(dict(ROW, state={"score": float("nan")}))
+
+
+TINY_PNG = (
+    b"\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR\x00\x00\x00\x01\x00\x00\x00\x01"
+    b"\x08\x02\x00\x00\x00\x90wS\xde\x00\x00\x00\x0cIDATx\x9cc\xf8\xcf\xc0"
+    b"\x00\x00\x03\x01\x01\x00\x18\xdd\x8d\xb0\x00\x00\x00\x00IEND\xaeB`\x82"
+)
+
+
+def test_image_field_is_optional_and_unused_rows_stay_text():
+    validate_row(ROW)
+    content = direct_messages(ROW)[1]["content"]
+    assert isinstance(content, str)
+    assert "Image" not in content
+
+
+def test_image_must_be_an_existing_file(tmp_path):
+    with pytest.raises(ValueError, match="Image"):
+        validate_row(dict(ROW, Image=""))
+    with pytest.raises(ValueError, match="Image"):
+        validate_row(dict(ROW, Image=str(tmp_path / "missing.png")))
+    path = tmp_path / "shot.png"
+    path.write_bytes(TINY_PNG)
+    row = dict(ROW, Image=str(path))
+    validate_row(row)
+    user = direct_messages(row)[1]["content"]
+    assert user[0] == {"type": "image", "image": str(path)}
+    assert user[1]["type"] == "text"
+    assert '"evidence": "owned evidence"' in user[1]["text"]
+    assert str(path) not in user[1]["text"]
+    assert direct_messages(ROW)[1]["content"] == user[1]["text"]

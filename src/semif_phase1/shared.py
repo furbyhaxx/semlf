@@ -6,11 +6,11 @@ import inspect
 import json
 import time
 
-from .core import direct_messages, softmax
-from .direct import PROMPT_VERSION, encode_prompt
+from .core import direct_messages, softmax, tokenize_rendered, user_text
+from .direct import PROMPT_VERSION, encode_decision, _prefix_vision
 
 
-def _state_prefix(tokenizer, state) -> list[int]:
+def _state_prefix(tokenizer, state, image=None) -> list[int]:
     row = {
         "id": "prefix-only",
         "state": state,
@@ -21,11 +21,13 @@ def _state_prefix(tokenizer, state) -> list[int]:
             {"id": "no", "description": "No"},
         ],
     }
+    if image:
+        row["Image"] = image
     turns = direct_messages(row)
     prompt = tokenizer.apply_chat_template(
         turns, tokenize=False, add_generation_prompt=True, enable_thinking=False
     )
-    payload = turns[-1]["content"]
+    payload = user_text(turns[-1]["content"])
     if prompt.count(payload) != 1:
         raise ValueError("Cannot locate the unmodified evidence payload in the chat template")
     evidence = json.dumps({"evidence": state}, ensure_ascii=False)[:-1]
@@ -33,7 +35,8 @@ def _state_prefix(tokenizer, state) -> list[int]:
         raise ValueError("Evidence serialization changed")
     text = prompt[: prompt.index(payload)] + evidence
     # Appending JSON punctuation can merge with the final boundary token.
-    return tokenizer.encode(text, add_special_tokens=False)[:-1]
+    ids, _ = tokenize_rendered(tokenizer, text, row)
+    return ids[:-1]
 
 
 def _suffix_layout(sequences: list[list[int]], prefix_length: int, pad_id: int):
@@ -52,21 +55,23 @@ def _suffix_layout(sequences: list[list[int]], prefix_length: int, pad_id: int):
 
 def score_shared(model, tokenizer, rows: list[dict], metadata: dict, max_tokens: int = 4096):
     """Return all option distributions together after one state prefill."""
-    import torch
-
-    if not rows or any(row["state"] != rows[0]["state"] for row in rows[1:]):
+    if not rows or any(
+        row["state"] != rows[0]["state"] or row.get("Image") != rows[0].get("Image") for row in rows[1:]
+    ):
         raise ValueError("Shared scoring requires one nonempty exact state")
     if len({row["id"] for row in rows}) != len(rows):
         raise ValueError("Decision IDs must be unique")
+    import torch
+
     started = time.perf_counter()
-    encoded = [encode_prompt(tokenizer, row, max_tokens) for row in rows]
-    prefix = _state_prefix(tokenizer, rows[0]["state"])
-    if not prefix or any(ids[: len(prefix)] != prefix or len(ids) <= len(prefix) for ids, _, _ in encoded):
+    encoded = [encode_decision(tokenizer, row, max_tokens) for row in rows]
+    prefix = _state_prefix(tokenizer, rows[0]["state"], rows[0].get("Image"))
+    if not prefix or any(ids[: len(prefix)] != prefix or len(ids) <= len(prefix) for ids, _, _, _ in encoded):
         raise ValueError("The fixed state prefix does not match every full prompt")
     pad = tokenizer.pad_token_id if tokenizer.pad_token_id is not None else tokenizer.eos_token_id
     if pad is None:
         raise ValueError("Tokenizer requires a padding or EOS token")
-    layout, ends = _suffix_layout([ids[len(prefix) :] for ids, _, _ in encoded], len(prefix), pad)
+    layout, ends = _suffix_layout([ids[len(prefix) :] for ids, _, _, _ in encoded], len(prefix), pad)
     selected_positions = sorted(set(ends))
     encode_seconds = time.perf_counter() - started
     device = next(model.parameters()).device
@@ -83,6 +88,7 @@ def score_shared(model, tokenizer, rows: list[dict], metadata: dict, max_tokens:
         output = model(
             input_ids=torch.tensor([prefix], dtype=torch.long, device=device),
             attention_mask=torch.ones((1, len(prefix)), dtype=torch.long, device=device),
+            **_prefix_vision(encoded[0][3], len(prefix), device),
             use_cache=True,
             return_dict=True,
             logits_to_keep=1,
@@ -113,7 +119,7 @@ def score_shared(model, tokenizer, rows: list[dict], metadata: dict, max_tokens:
         sync()
         suffix_seconds = time.perf_counter() - mark
         results = []
-        for index, (row, (ids, slots, prompt_hash)) in enumerate(zip(rows, encoded)):
+        for index, (row, (ids, slots, prompt_hash, _)) in enumerate(zip(rows, encoded)):
             vocabulary = output.logits[index, selected_positions.index(ends[index]), :].float()
             selected = vocabulary[slots].cpu().tolist()
             results.append(
@@ -140,7 +146,7 @@ def score_shared(model, tokenizer, rows: list[dict], metadata: dict, max_tokens:
         "replicate_seconds": replicate_seconds,
         "suffix_forward_seconds": suffix_seconds,
         "batch_size": len(rows),
-        "true_suffix_tokens": sum(len(ids) - len(prefix) for ids, _, _ in encoded),
+        "true_suffix_tokens": sum(len(ids) - len(prefix) for ids, _, _, _ in encoded),
         "padded_suffix_tokens": len(rows) * len(layout["input_ids"][0]),
     }
     return results, timing
