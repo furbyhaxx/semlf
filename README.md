@@ -184,6 +184,7 @@ Returned probabilities are conditional on the supplied options. Calibrate and va
 - [Results](docs/RESULTS.md) — quality, speed, perturbations, and claim boundaries
 - [Method](docs/METHOD.md) — frozen prompts, metrics, and timing scope
 - [Reproduce](docs/REPRODUCE.md) — exact environment, pinned commands, perturbations, and verification
+- [Colab notebooks](notebooks/README.md) — Unsloth inference, evaluation, and LoRA training on free T4 or small GPUs
 - [Interactive replay](demo/index.html)
 - [Browser-only WebGPU demo](webgpu-demo/index.html) — no waitlist; use it today
 - [Machine-readable summary](results/phase1-summary.json)
