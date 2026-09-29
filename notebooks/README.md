@@ -9,9 +9,9 @@ pass whose option logits are read directly.
 
 | Notebook | Purpose | |
 | --- | --- | --- |
-| [SemIf_Inference](SemIf_Inference.ipynb) | Score single decisions, JSONL files, shared-state criteria and image rows | [![Open in Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/furbyhaxx/semlf/blob/main/notebooks/SemIf_Inference.ipynb) |
-| [SemIf_Eval](SemIf_Eval.ipynb) | Quality, speed and memory per model and precision; drift from the reference; sweeps | [![Open in Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/furbyhaxx/semlf/blob/main/notebooks/SemIf_Eval.ipynb) |
-| [SemIf_Train](SemIf_Train.ipynb) | LoRA / QLoRA on the answer-letter logits, evaluated before and after | [![Open in Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/furbyhaxx/semlf/blob/main/notebooks/SemIf_Train.ipynb) |
+| [SemIf_Inference](SemIf_Inference.ipynb) | Score single decisions, JSONL files, shared-state criteria and image rows | [![Open in Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/furbyhaxx/semlf/blob/master/notebooks/SemIf_Inference.ipynb) |
+| [SemIf_Eval](SemIf_Eval.ipynb) | Quality, speed and memory per model and precision; drift from the reference; sweeps | [![Open in Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/furbyhaxx/semlf/blob/master/notebooks/SemIf_Eval.ipynb) |
+| [SemIf_Train](SemIf_Train.ipynb) | LoRA / QLoRA on the answer-letter logits, evaluated before and after | [![Open in Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/furbyhaxx/semlf/blob/master/notebooks/SemIf_Train.ipynb) |
 
 ## Where the pieces come from
 

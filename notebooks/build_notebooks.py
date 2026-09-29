@@ -19,7 +19,7 @@ REPO = "furbyhaxx/semlf"
 
 
 def colab(name: str) -> str:
-    return f"https://colab.research.google.com/github/{REPO}/blob/main/notebooks/{name}"
+    return f"https://colab.research.google.com/github/{REPO}/blob/master/notebooks/{name}"
 
 
 def badge(name: str) -> str:
@@ -61,7 +61,7 @@ import json, subprocess, sys, time
 from pathlib import Path
 
 SEMLF_REPO = "https://github.com/furbyhaxx/semlf"  # @param {type:"string"}
-SEMLF_REF = "main"  # @param {type:"string"}
+SEMLF_REF = "master"  # @param {type:"string"}
 
 ROOT = next((p for p in (Path.cwd(), *Path.cwd().parents) if (p / "src" / "semif_phase1").is_dir()), None)
 if ROOT is None:
